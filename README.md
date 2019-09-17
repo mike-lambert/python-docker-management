@@ -43,7 +43,7 @@ Some aspects in `docker-managed-port-server` are subjects of improvement and TBD
 ## And what?
 Run `./docker-managed-port-instances` and see built-in help.
 
-## Ok, I'd forget which links I used on my host
+## Ok, I'd forget how to use stuff on my host
 ```
 ./docker-managed-port-server &
 curl -sS http://localhost:5000/deeplinks
