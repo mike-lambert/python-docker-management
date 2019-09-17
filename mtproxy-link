@@ -1,0 +1,91 @@
+#!/usr/bin/python
+import sys
+import json
+import urllib2
+
+IMAGE_MTPROXY = 'MTProxy'
+IMAGE_FAKETLS = 'FakeTLS'
+DOCKER_HOST = '127.0.0.1'
+
+
+def link(host, port, secret, domain=None):
+  return 'tg://proxy?server=' + host + '&port=' + str(port) + '&secret=' + secret
+
+
+def out(entry):
+  print entry
+  print '----------------------------------------------'
+  print ' '
+
+
+def faketls_config(port):
+  url = 'http://' + DOCKER_HOST + ':' + str(port) + '/'
+  response = urllib2.urlopen(url).read()
+  data = json.loads(response)
+  return data['deeplinks']
+
+
+def filter(containers):
+  result = []
+  for descriptor in containers:
+    if descriptor['configuration']['image'] == IMAGE_MTPROXY:
+      secret = descriptor['configuration']['secret']
+      if descriptor['configuration']['command'].find('nineseconds/mtg:latest dd') > -1:
+        secret = 'dd' + secret
+      host = descriptor['host']
+      port = descriptor['port_mappings'][0]['host_port']
+      result.append({
+        'resource_type': 'MTProxy',
+        'raw': link(host, port, secret)
+      })
+    elif descriptor['configuration']['image'] == IMAGE_FAKETLS:
+      ports = descriptor['configuration']['ports']
+      api_port = ports[-1]
+      deeplinks = faketls_config(api_port)
+      if deeplinks and len(deeplinks):
+        for deeplink in deeplinks:
+          result.append({
+            'resource_type': 'MTProxy',
+            'raw': deeplink
+          })
+  return result
+
+
+if __name__ == '__main__':
+  if len(sys.argv) > 3:
+    out(sys.argv[1], sys.argv[2], sys.argv[3])
+    quit()
+  json_out = False
+  if len(sys.argv) > 1 and sys.argv[1] == 'json':
+    json_out = True
+  text = sys.stdin.read()
+  containers = json.loads(text)
+  result = []
+  for descriptor in containers:
+    if descriptor['configuration']['image'] == IMAGE_MTPROXY:
+      secret = descriptor['configuration']['secret']
+      if descriptor['configuration']['command'].find('nineseconds/mtg:latest dd') > -1:
+        secret = 'dd' + secret
+      host = descriptor['host']
+      port = descriptor['port_mappings'][0]['host_port']
+      if json_out:
+        result.append({
+          'raw': link(host, port, secret)
+        })
+      else:
+        out(link(host, port, secret))
+    elif descriptor['configuration']['image'] == IMAGE_FAKETLS:
+      ports = descriptor['configuration']['ports']
+      api_port = ports[-1]
+      deeplinks = faketls_config(api_port)
+      if deeplinks and len(deeplinks):
+        for deeplink in deeplinks:
+          if json_out:
+            result.append({
+              'raw': deeplink
+            })
+          else:
+            out(deeplink)
+
+  if json_out and len(result) > 0:
+    print json.dumps(result, indent=2)
