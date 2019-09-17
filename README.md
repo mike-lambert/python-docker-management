@@ -18,15 +18,21 @@ could be used on host, and make using dockered servers quick and comfortable
 
 ## Prerequisites
 I am fan of Ubuntu, so keep in mind that I targeted on Ubuntu 16.04 and 18.04. Don't forget to refresh repos
+
 ```sudo apt-get -y apt-get update```
+
 So, on 18.04 and more fresh you need to install python 2.7, because them packed with python 3.x by default.
+
 ```sudo apt-get -y install python```
+
 After that you could clone this repo, and allow script to be runnable
+
 ```
 sudo chmod +x ./docker-managed-port-*
 sudo chmod +x ./*-link
 ```
 Finally, you run the main script, which do the rest of work
+
 ```sudo ./docker-managed-port-instances init```
 
 ## Strange things
@@ -37,6 +43,6 @@ Some aspects in `docker-managed-port-server` are subjects of improvement and TBD
 ## And what?
 Run `./docker-managed-port-instances` and see built-in help.
 
-##Ok, I'd forget which links I used on my host
+## Ok, I'd forget which links I used on my host
 ```./docker-managed-port-server &
 curl -sS http://localhost:5000/deeplinks```
