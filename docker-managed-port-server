@@ -1,0 +1,69 @@
+#!/usr/bin/python
+# MANAGED INSTANCE REST API BELOW #
+from __future__ import print_function
+from flask import Flask
+from flask import jsonify
+from flask import abort
+from flask import request
+import imp
+import json
+import sys
+import threading
+
+api = imp.load_source('containers', './docker-managed-port-instances')
+imp.load_source('deeplink_mtproxy', './mtproxy-link')
+imp.load_source('deeplink_outline', './outline-link')
+import containers
+import deeplink_mtproxy
+import deeplink_outline
+
+app = Flask(__name__)
+
+@app.route('/')
+def index():
+  return 'Docker Node REST API'
+
+@app.route('/containers')
+def containers_enumerate():
+  return jsonify({'containers': containers.docker_containers_enum()})
+
+@app.route('/descriptors')
+def images_enumerate():
+  return jsonify({'descriptors': containers.IMAGES})
+
+@app.route('/descriptors/start/<id>')
+def container_start(id):
+  cfg = containers.docker_container_start(id)
+  return jsonify(cfg)
+
+@app.route('/containers/<id>')
+def container_describe(id):
+  processes = containers.docker_containers_enum()
+  for container in processes:
+    if container['container_id'] == id or container['configuration']['id'] == id or container['configuration']['container_id'] == id:
+      return jsonify(container)
+  abort(404)
+
+def postpone_stop(id):
+  containers.docker_container_stop(id)
+
+@app.route('/containers/<id>/stop')
+def container_stop(id):
+  t = threading.Thread(target=postpone_stop, args=(id,))
+  t.start()
+  return jsonify({'containerId': id, 'action':'STOP', 'error':0, 'message': 'OK'})
+
+@app.route('/load')
+def status():
+  return jsonify(containers.stat())
+
+@app.route('/deeplinks')
+def deeplinks():
+  running = containers.docker_containers_enum()
+  result = []
+  result.extend(deeplink_mtproxy.filter(running))
+  result.extend(deeplink_outline.filter(running))
+  return jsonify({'deeplinks': result})
+
+if __name__ == '__main__':
+  app.run(host='0.0.0.0')

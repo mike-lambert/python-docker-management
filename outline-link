@@ -1,0 +1,70 @@
+#!/usr/bin/python
+import sys
+import base64
+import json
+
+IMAGE_OUTLINE = 'Outline'
+COLOR_FG = 'blue'
+COLOR_BG = 'white'
+
+
+def ss_raw_url(host, port, password, encryption):
+  return encryption + ':' + password + '@' + host + ':' + str(port)
+
+
+def ss_encoded_url(host, port, password, encryption):
+  return 'ss://' + base64.b64encode(ss_raw_url(host, port, password, encryption))
+
+
+def qr(host, port, password, encryption):
+  import pyqrcode
+  return pyqrcode.create(ss_encoded_url(host, port, password, encryption), error='H')
+
+
+def out(host, port, password, encryption):
+  print ss_encoded_url(host, port, password, encryption)
+  print ss_raw_url(host, port, password, encryption)
+  print '----------------------------------------------'
+  print ' '
+
+
+def filter(containers):
+  result = []
+  for descriptor in containers:
+    if descriptor['configuration']['image'] == IMAGE_OUTLINE:
+      enc = descriptor['configuration']['encryption']
+      password = descriptor['configuration']['secret']
+      host = descriptor['host']
+      port = descriptor['port_mappings'][0]['host_port']
+      result.append({
+        'resource_type': 'Shadowsocks',
+        'encoded': ss_encoded_url(host, port, password, enc),
+        'raw': ss_raw_url(host, port, password, enc)
+      })
+  return result;
+
+if __name__ == '__main__':
+  if len(sys.argv) > 4:
+    out(sys.argv[3], sys.argv[4], sys.argv[2], sys.argv[1])
+    quit()
+  json_out = False
+  if len(sys.argv) > 1 and sys.argv[1] == 'json':
+    json_out = True
+  text = sys.stdin.read()
+  containers = json.loads(text)
+  result = []
+  for descriptor in containers:
+    if descriptor['configuration']['image'] == IMAGE_OUTLINE:
+      enc = descriptor['configuration']['encryption']
+      password = descriptor['configuration']['secret']
+      host = descriptor['host']
+      port = descriptor['port_mappings'][0]['host_port']
+      if json_out:
+        result.append({
+          'encoded': ss_encoded_url(host, port, password, enc),
+          'raw': ss_raw_url(host, port, password, enc)
+        })
+      else:
+        out(host, port, password, enc)
+  if json_out and len(result) > 0:
+    print json.dumps(result, indent=2)
