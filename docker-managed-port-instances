@@ -1,0 +1,331 @@
+#!/usr/bin/python
+import subprocess
+import sys
+import json
+import string
+import random
+import md5
+import socket
+
+PORT_BASE = 4000
+PORT_RANGE = 500
+SALT = 'q8Ad0e1zP674AlX'
+REGISTRY = '/opt/data/managed-containers'
+TLS_HOST = 'www.cyfrant.com'
+
+IMAGES = [
+  {
+    'id': 'SOCKS5',
+    'command': 'docker run -d -p ${PORT}:1080 --restart unless-stopped -e USER=${USER} -e PASS=${SECRET} --name socks-${ID} schors/tgdante2:latest',
+    'description': 'SOCKS5 proxy server with authorization to circumvent Telegram App censorship in particular countries',
+    'label': 'Dante 1.4.2 Telegram Edition'
+  },
+  {
+    'id': 'MTProxy',
+    'command': 'docker run -d -p ${PORT}:3128 --name=mtgo-proxy-${ID} --restart=unless-stopped -e MTG_SECURE_ONLY=true nineseconds/mtg:latest dd${SECRET}',
+    'label': 'MTGo Proxy Server for Telegram',
+    'description': 'MTGo Proxy Server to access Telegram'
+  },
+  {
+    'id': 'Outline',
+    'label': 'Outline/ShadowSocks server',
+    'description': 'VPN server for mobile access',
+    'command': 'docker run -d -p ${PORT}:8388 -p ${PORT}:8388/udp --name=outline-${ID} --restart=unless-stopped -e PASSWORD=${SECRET} -e METHOD=${ENCRYPTION} shadowsocks/shadowsocks-libev'
+  },
+  {
+    'id': 'FakeTLS',
+    'label': 'Python Proxy Server for Telegram',
+    'description': 'Hardened MTProxy Server with fake TLS obfuscation',
+    'command': 'docker run --network host --name=faketls-${ID} -d -e SNI=${SNI} -e PROXY_PORT=${PORT} -e API_PORT=${PORT+1} -e SECRET=${SECRET} cyberspacelabs/faketls:latest',
+    'increment': 2
+  }
+]
+
+
+def id():
+  return ''.join(random.choice(string.ascii_letters + string.digits) for _ in range(16))
+
+
+def secret(id):
+  digest = md5.new()
+  digest.update(SALT)
+  digest.update(str(id))
+  return digest.hexdigest()
+
+
+def localhost():
+  ip = ([(s.connect(('8.8.8.8', 53)), s.getsockname()[0], s.close()) for s in
+         [socket.socket(socket.AF_INET, socket.SOCK_DGRAM)]][0][1])
+  return ip
+
+
+def docker_registry_update(registry):
+  val = json.dumps(registry, indent=2, sort_keys=True)
+  file = None
+  try:
+    file = open(REGISTRY, 'w')
+    file.write(val)
+    # print val
+  finally:
+    if file != None:
+      file.close()
+
+
+def docker_registry_read():
+  result = []
+  file = None
+  try:
+    file = open(REGISTRY, 'r')
+    val = file.read()
+    result = json.loads(val)
+    return result
+  except Exception as e:
+    pass
+    # print e
+  finally:
+    if file != None:
+      file.close()
+    return result
+
+
+def docker_get_descriptor(image_id):
+  for descriptor in IMAGES:
+    if descriptor['id'] == image_id:
+      return descriptor;
+  raise ValueError('No service descriptor "' + image_id + '"')
+
+
+def docker_image_get_command(image_id):
+  for descriptor in IMAGES:
+    if descriptor['id'] == image_id:
+      return descriptor['command']
+  raise ValueError('No service descriptor "' + image_id + '"')
+
+
+def docker_service_config_create(image_id, user=None):
+  pid = id()
+  sec = secret(pid)
+  uname = 'user_' + sec[24:32]
+  registry = docker_registry_read()
+  encmeth = 'aes-256-cfb'
+  # print 'registry state: ', str(registry)
+  port = docker_port_next(registry)
+  cmd = docker_image_get_command(image_id)
+  if user != None:
+    uname = user
+  cmd = cmd.replace('${ID}', sec[0:16]).replace('${USER}', uname).replace('${SECRET}', sec).replace('${PORT}', str(port)).replace('${ENCRYPTION}', encmeth).replace('${SNI}', TLS_HOST)
+
+  config = {'id': sec[0:16], 'port': port, 'user': uname, 'secret': sec, 'image': image_id, 'command': cmd,
+            'encryption': encmeth}
+  if 'increment' in docker_get_descriptor(image_id):
+    #print 'Multiport instance starting'
+    config['ports'] = []
+    for x in range(0, docker_get_descriptor(image_id)['increment']):
+      config['ports'].append(port + x)
+      if x > 0:
+        label = '${PORT+' + str(x)+'}'
+        #print label + ' -> ' + str(port + x)
+        cmd = cmd.replace(label, str(port+x))
+    config['command'] = cmd
+    #print config['command']
+  # print json.dumps(config, indent=2, sort_keys=True)
+  registry.append(config)
+  docker_registry_update(registry)
+  config['host'] = localhost()
+  return config
+
+
+def docker_port_next(configs, increment=1):
+  port = PORT_BASE
+  limit = PORT_BASE + PORT_RANGE
+  while port <= limit:
+    allocated = False
+    for config in configs:
+      if config['port'] == port:
+        allocated = True
+        break
+      if 'ports' in config:
+        for port_n in config['ports']:
+          if port_n == port:
+            allocated = True
+            break
+    if allocated == False:
+      return port
+    else:
+      port = port + 1
+  raise ValueError('No unallocated ports in range ' + str(PORT_BASE) + ':' + str(limit))
+
+
+def docker_containers_enum():
+  proc = subprocess.Popen('docker ps', stdout=subprocess.PIPE, shell=True)
+  stdout, stderr = proc.communicate()
+  # print stdout
+  lines = stdout.split('\n')
+  ps = []
+  cnt = 0
+  ip = localhost()
+  registry = docker_registry_read()
+  for line in lines:
+    cnt = cnt + 1
+    if cnt == 1:
+      continue
+    # print line
+    while line.find('  ') > -1:
+      line = line.replace('  ', ' ')
+    fields = line.split(' ')
+    #print str(fields)
+    if len(fields) < 4:
+      continue
+    # print str(fields)
+    status = {'container_id': fields[0], 'docker_image': fields[1], 'port_mappings': [], 'container_name': fields[-1],
+              'host': ip, 'configuration': None}
+    for config in registry:
+      if 'container_id' in config:
+#        print status['container_id'], config['container_id']
+        if config['container_id'].startswith(status['container_id']):
+          status['configuration'] = config
+          ps.append(status)
+          break
+
+    ports = fields[-2]
+    pm = ports.split('->')
+    # print str(pm)
+    if len(pm) == 2:
+      hep = pm[0].split(':')
+      cp = pm[1].split('/')
+      mapping = {'protocol': cp[1].upper(), 'container_port': int(cp[0]), 'host_address': hep[0],
+               'host_port': int(hep[1])}
+      status['port_mappings'].append(mapping)
+      #    if mapping['host_port'] >= PORT_BASE and mapping['host_port'] <= PORT_BASE + PORT_RANGE:
+      for config in registry:
+        if config['port'] == mapping['host_port'] and not status['configuration']:
+          status['configuration'] = config
+          ps.append(status)
+          break
+      # print str(status)
+  # print json.dumps(ps, indent = 2, sort_keys = True)
+  return ps
+
+
+def stat():
+  cl = docker_containers_enum()
+  rc = len(cl)
+  ip = localhost()
+  load = int(rc * 100 / PORT_RANGE)
+  return {'host': ip, 'running': rc, 'capacity': PORT_RANGE, 'load': load}
+
+
+def recover():
+  registry = docker_registry_read()
+  containers = docker_containers_enum()
+  for config in registry:
+    flag = False
+    for container in containers:
+      if (container['configuration']['id'] == config['id']):
+        print '  ALIVE: ', config['id'], container['container_id'], container['container_name'], '"' + container[
+          'configuration']['command'] + '"'
+        flag = True
+        break
+    if not flag:
+      cmd('docker rm ' + config['name'])
+      cmd(config['command'])
+      print '  START: ', config['id'], '"' + container['configuration']['command'] + '"'
+
+
+def docker_container_stop(container_id):
+  registry = docker_registry_read()
+  containers = docker_containers_enum()
+  id = None
+  cfgid = None
+  for container in containers:
+    if container['container_id'] == container_id:
+      id = container['container_id']
+      cfgid = container['configuration']['id']
+      break
+  if id != None and cfgid != None:
+    for i in range(len(registry)):
+      if registry[i]['id'] == cfgid:
+        del registry[i]
+        docker_registry_update(registry)
+        break
+    cmd('docker stop ' + id)
+    cmd('docker rm ' + id)
+  return
+
+
+def shell(command):
+  proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+  stdout, stderr = proc.communicate()
+  print stdout, stderr
+
+
+def cmd(command):
+  proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+  stdout, stderr = proc.communicate()
+  return stdout
+
+def docker_container_start(image_id):
+  cfg = docker_service_config_create(image_id)
+  cid = cmd(cfg['command']).replace('\r', '').replace('\n', '')
+  registry = docker_registry_read()
+  id = cfg['id']
+  for config in registry:
+    if config['id'] == id:
+      config['container_id'] = cid
+      cfg['container_id'] = cid
+      docker_registry_update(registry)
+      break
+  print json.dumps(cfg, indent=2, sort_keys=True)
+  return cfg
+
+# BOOT CODE BELOW #
+if __name__ == '__main__':
+  if len(sys.argv) < 2:
+    print "usage: docker-managed-port-instances start IMAGE_ID | stop INSTANCE_ID | list | images | init | recover | stat"
+    quit()
+
+  if sys.argv[1] == 'init':
+    print 'Updating system repositories'
+    shell('apt-get -y update')
+    print 'Installing docker'
+    shell('apt-get -y install docker.io')
+    print 'Creating registry'
+    shell('mkdir -p /opt/data')
+    shell('mkdir -p /opt/docker/instance-data')
+    print 'Downloading image cache: MTGo MTProxy Server'
+    shell('docker pull nineseconds/mtg:latest')
+    print 'Downloading image cache: Dante SOCKS Server'
+    shell('docker pull schors/tgdante2:latest')
+    print 'Downloading image cache: Shadowsocks VPN Server'
+    shell('docker pull shadowsocks/shadowsocks-libev')
+    print 'Downloading image cache: PyMTProto hardened MTProxy Server'
+    shell('docker pull cyberspacelabs/faketls:latest')
+    print 'Installing web runtime libraries'
+    shell('apt-get -y install python-flask python-flask-httpauth python-pyqrcode')
+    quit()
+
+  if sys.argv[1] == 'recover':
+    recover()
+    quit()
+
+  if sys.argv[1] == 'stat':
+    print json.dumps(stat(), indent=2, sort_keys=True)
+
+  if sys.argv[1] == 'list':
+    ps = docker_containers_enum()
+    print json.dumps(ps, indent=2, sort_keys=True)
+    quit()
+
+  if sys.argv[1] == 'images':
+    print json.dumps(IMAGES, indent=2, sort_keys=True)
+    quit()
+
+  if sys.argv[1] == 'start' and len(sys.argv) == 3:
+    docker_container_start(sys.argv[2])
+    quit()
+
+  if sys.argv[1] == 'stop' and len(sys.argv) == 3:
+    docker_container_stop(sys.argv[2])
+    quit()
+
+  print "usage: docker-managed-port-instances start IMAGE_ID | stop INSTANCE_ID | list | images | init | recover | stat"
