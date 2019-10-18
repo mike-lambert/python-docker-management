@@ -5,7 +5,7 @@ A set of python scripts, intended to manage bunch of simple stateless services l
 Simplify management of tons of look-the-same containers without using heavyweight tools like Kubernetes.
 
 ### Live case
-I am an operator of proxies and VPNs, which are used by people in oder to circumvent government-influenced censorship. So, I need to run the same tools against 
+I am an operator of proxies and VPNs, which are used by people in order to circumvent government-influenced censorship. So, I need to run the same tools against 
 slightly different configs. I need to do this on various hosts, because some host could be banned in target audience jurisdiction. Moreover, I need to do it quick 
 in order to minimize downtime.
 
@@ -23,13 +23,17 @@ I am fan of Ubuntu, so keep in mind that I targeted on Ubuntu 16.04 and 18.04. D
 
 So, on 18.04 and more fresh you need to install python 2.7, because them packed with python 3.x by default.
 
-```sudo apt-get -y install python```
+```sudo apt-get -y install python git dos2unix zip unzip p7zip```
 
 After that you could clone this repo, and allow script to be runnable
 
 ```
 sudo chmod +x ./docker-managed-port-*
 sudo chmod +x ./*-link
+dos2unix ./docker-managed-port-instances
+dos2unix ./docker-managed-port-server
+dos2unix ./mtproto-link
+dos2unix ./outline-link
 ```
 Finally, you run the main script, which do the rest of work
 
@@ -43,7 +47,7 @@ Some aspects in `docker-managed-port-server` are subjects of improvement and TBD
 ## And what?
 Run `./docker-managed-port-instances` and see built-in help.
 
-## Ok, I'd forget how to use stuff on my host
+## Ok, I'd forget how to use stuff, installed and running on my host
 ```
 ./docker-managed-port-server &
 curl -sS http://localhost:5000/deeplinks
