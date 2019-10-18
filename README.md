@@ -32,7 +32,7 @@ sudo chmod +x ./docker-managed-port-*
 sudo chmod +x ./*-link
 dos2unix ./docker-managed-port-instances
 dos2unix ./docker-managed-port-server
-dos2unix ./mtproto-link
+dos2unix ./mtproxy-link
 dos2unix ./outline-link
 ```
 Finally, you run the main script, which do the rest of work
